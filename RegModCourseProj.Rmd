@@ -1,0 +1,197 @@
+---
+title: "Analysis of transmission type differences for cars of 1973."
+output: pdf_document
+---
+
+```{r Loading libraries and data, echo = FALSE}
+data(mtcars)
+suppressMessages(library(ggplot2))
+suppressMessages(library(GGally))
+suppressMessages(library(dplyr))
+```
+
+```{r building table of p-values for am coefficient in different models, echo = FALSE}
+
+```
+
+```{r constructing models with significant am coefficients, echo = FALSE}
+data(mtcars)
+mtcars = mutate(mtcars, am = factor(am), vs = factor(vs))
+
+fitAm = lm(mpg ~ am, mtcars)
+fitAmQsec = lm(mpg ~ am + qsec , mtcars)
+fitAmHp = lm(mpg ~ am + hp , mtcars)
+fitAmVs = lm(mpg ~ am + vs , mtcars)
+```
+
+## Executive summary.
+The fulfilled analysis revealed an insufficiency of data in the used dataset to 
+perform causal analysis and discover if changing just transmission type causes
+the significant changes of miles/gallon for automobiles of 1973. But results of the 
+analysis also allow to believe that if exactly different transmission types cause
+changes in miles/gallon (instead of some 3rd force causes changes in both of them) 
+then manual transmission type has more miles/gallon than automatic one does.
+
+## Analysis.
+During exploratory analysis I plot 2 graphics and looked at the first rows of data.
+```{r exploratory analysis, echo = FALSE}
+data(mtcars)
+gPairs = ggpairs(mtcars, axisLabels = "none",
+    title = "So called, pairs graphic with correlation values for all variables of dataset.")
+
+mtcars = mutate(mtcars, am = factor(am), vs = factor(vs), gear = factor(gear), carb = factor(carb), cyl = factor(cyl))
+gMpgVsAm = ggplot(data = mtcars, aes(x = am, y = mpg)) + 
+    geom_boxplot() +  
+    labs(y = "miles/gallon") + 
+    labs(title = "Miles/gallon dependency from transmission types.") +
+    scale_x_discrete(name = "transmission type", breaks = c(0, 1), 
+                     labels = c('automatic', 'manual'))
+
+
+head(mtcars, 4)
+```
+From the boxplot (look at appendix) I can assume that manual transmission type must
+have bigger amount of miles/gallon, but there are many other variables here, so 
+may be there is some variable which causes both changes in transmission type and miles/gallon.
+From the pairs graphic it is clear that transmission type ("am" on the plot) has strong correlation with many variables 
+which also says for high probability of existence another force which causes changes in both 
+transmission type and miles/gallon.
+
+Because of the little quantity of observations only simple models (e.g. with 1-2 terms without intersection) have 
+low p-values for all coefficients, which means that there coefficients are truly not zeros. I am interested only 
+in models with am term (transmission type) included. Below there is the list of maximum of p-values 
+among all coefficients for each model with 2 terms: am and the one specified in column name.
+
+```{r looking for simple model which coefficients are all significant, echo=FALSE}
+data(mtcars)
+mtcars = mutate(mtcars, am = factor(am), vs = factor(vs), gear = factor(gear), carb = factor(carb), cyl = factor(cyl))
+
+getPValuesFor2TermModels = function() {
+    res = numeric()
+    for (var in names(mtcars)) {
+        if (var != "am" && var != "mpg") {
+            formula = paste("mpg ~ am +", var)
+            fit = lm(formula, data = mtcars)
+            #saving maximum p-value of all coefficient for that model
+            pRes = max(summary(fit)$coefficients[, "Pr(>|t|)"])
+            names(pRes) = var
+            res = c(res, round(pRes, 4))
+        }
+    }
+    res
+}
+
+getPValuesFor2TermModels()
+```
+So, only the models with am and one term of qsec (1/4 mile time), hp (Gross horsepower), vs (V/S) have all coefficients 
+which are significantly different from zeros (p-value < 0.05). All other models are uninterpretable 
+because some of their coefficients probably equal to zero (We cannot reject this hypothesis).  
+These 3 models and the model with only 1 term (am) I compared by ANOVA to find the one 
+with the least sum of residual's squares (RSS column):
+
+```{r ANOVA comparison, echo = FALSE}
+fitAm = lm(mpg ~ am, mtcars)
+fitAmQsec = lm(mpg ~ am + qsec , mtcars)
+fitAmHp = lm(mpg ~ am + hp , mtcars)
+fitAmVs = lm(mpg ~ am + factor(vs) , mtcars)
+anova(fitAm, fitAmQsec, fitAmHp, fitAmVs)
+```
+So, the best model is the one with am and hp terms.  
+
+Must to say that for all those 4 models the coefficient for am1 term is positive. This coefficient defines differences 
+between manual (labeled as 1) and automatic (labeled as 0) transmission types given all other predictors 
+(if they present) stay constant. So I can assume that if changes in transmission type 
+can cause changes in miles/gallon values then for manual transmission type the value of miles/gallon is bigger 
+than for automatic type. Below there are actual values of coefficients for each of those models 
+with 95% confidence intervals:
+
+```{r coefficient calculation, echo = FALSE}
+
+printModel = function(model) {
+    form = formula(model)
+    paste(form[2], form[1], form[3])
+}
+
+getAmCoefficientAndConfidenceInterval = function(modelList) {
+    res = data.frame(Formula = character(), CoefVal = numeric(), lowerConfInt = numeric(), upperConfInt = numeric())
+    for (model in modelList) {
+        coefStatist = summary(model)$coef
+        confInt = 
+            coefStatist['am1', 'Estimate'] + c(-1, 1) * qt( 0.975, model$df.residual) * coefStatist['am1', 'Std. Error']
+        crntRes = data.frame(Formula = printModel(model), 
+                            CoefVal = coefStatist['am1', 'Estimate'], 
+                            lowerConfInt = confInt[1], 
+                            upperConfInt = confInt[2])
+        res = rbind(res, crntRes)
+    }
+    res
+}
+
+modelList = list(fitAm, fitAmQsec, fitAmHp, fitAmVs)
+getAmCoefficientAndConfidenceInterval(modelList)
+```
+So, with the best model am + hp we can expect increasing in miles/gallon on 
+`r getAmCoefficientAndConfidenceInterval(list(fitAmHp))$CoefVal` when we replace automatic transmission by manual one 
+given the gross horsepower value is fixed. The uncertainty of this estimation for 95% confidence interval is 
+(`r getAmCoefficientAndConfidenceInterval(list(fitAmHp))$lowerConfInt`; 
+`r getAmCoefficientAndConfidenceInterval(list(fitAmHp))$upperConfInt`).
+
+To perform some diagnostics I have placed residual plot and fitted value plot for the model mpg ~ am + hp 
+in the appendix and below there are influence measures for mpg ~ am and mpg ~ am + hp models:
+```{r fitted values plot, echo = FALSE}
+# look for residual plot code in the appendix
+
+gFittedValues = 
+    ggplot() +
+    geom_point(aes(x = fitAmHp$model$hp, y = fitAmHp$model$mpg, color = fitAmHp$model$am)) + 
+    geom_line(aes(x = fitAmHp$model$hp, y = fitAmHp$fitted.values, color = fitAmHp$model$am)) +
+    scale_color_manual(name = "Transmission\ntypes", breaks = c(0, 1), values = c("red", "green"),
+            labels = c("automatic", "manual")) +
+    labs(x = "Gross horsepower") +
+    labs(y = "Miles/(US) gallon") +
+    labs(title = "Estimated values of miles/gallon by model mpg ~ am + hp")
+
+
+```
+
+```{r influence measures, echo=FALSE}
+summary(influence.measures(fitAm))
+summary(influence.measures(fitAmHp))
+```
+
+I didn't exclude influential observations because there is too little data to reduce it further.
+
+In the end I must to say that these models are not enough to conclude that changes in transmission type can 
+cause change in miles/gallon. To proof such statement I need at least to fit the model with all possible terms,
+get significant p-values for all coefficients, look at coefficient for am1 
+(difference between manual transmission type and automatic one given all other predictors are constant)
+and only then claim how exaclty transmission type affect the miles/gallon. But in the given dataset there is not enough data 
+to get significant p-value for am1 coefficient (I cannot reject hypothesis that it is not equal to zero), 
+but may be more data will not change this and then it means that transmission type doesn't affect miles/gallon at all.
+
+\newpage 
+
+## Appendix
+### Exploratory analysis
+```{r ,echo = FALSE}
+gMpgVsAm
+```
+
+\newpage
+
+
+```{r plot pairs graphic, echo=FALSE, fig.height=10, fig.width=10}
+gPairs
+```
+
+\newpage
+
+### Model analysis.
+```{r fitted values, echo = FALSE, fig.height=4}
+gFittedValues
+```
+
+```{r residuals, echo = FALSE, fig.height=4.5}
+par(mfrow = c(2, 2))
+plot(fitAmHp)
+```
